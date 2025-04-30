@@ -117,6 +117,11 @@ class Audit extends Module
     public $userIdCallback = false;
 
     /**
+     * @var string The callback to get a user id.
+     */
+    public $userIpCallback = false;
+
+    /**
      * @var string Will be called to translate text in the user filter into a (or more) user id's
      */
     public $userFilterCallback = false;
@@ -140,7 +145,7 @@ class Audit extends Module
      * It is important that the key is unique, as this is the identifier used to store any data associated with the panel.
      *
      * Please note:
-     * - If you just want to change the configuration for a core panel, use `$panelsMerge`, it will be merged into this one
+     * - If you just want to change the configuration for a core panel, use the `$panelConfiguration`, it will be merged into this one
      * - If you add custom panels, please namespace them ("mynamespace/panelname").
      */
     public $panels = [
@@ -162,7 +167,7 @@ class Audit extends Module
 
     /**
      * Everything you add in here will be merged with the basic panel configuration.
-     * This gives you an easy way to just add or modify panels/configurations without having to re-specify all active panels.
+     * This gives you an easy way to just add or modify panels/configurations without having to re-specify every panel.
      * This only accepts regular definitions ('<key>' => '<array>'), but the core class will be added if needed
      * Take a look at the [module configuration](docs/module-configuration.md) for more information.
      */
@@ -176,8 +181,13 @@ class Audit extends Module
     // Things required to keep the module yii2-debug compatible
     /* @see \yii\debug\Module::$traceLine (since 2.0.7) */
     public $traceLine = \yii\debug\Module::DEFAULT_IDE_TRACELINE;
-     /* @see \yii\debug\Module::$tracePathMappings (since 2.1.6) */
+    /* @see \yii\debug\Module::$tracePathMappings (since 2.1.6) */
     public $tracePathMappings = [];
+
+    /**
+     * Controls whether the diff output for trails will be pretty printed if the value is json or not
+    */
+    public $enablePrettyDiffForTrails = false;
 
     /**
      * @var array
@@ -245,10 +255,12 @@ class Audit extends Module
         $trackActions = $isError ? $this->trackErrorActions : $this->trackActions;
         $ignoreActions = $isError ? $this->ignoreErrorActions : $this->ignoreActions;
 
-        if (!empty($trackActions) && !$this->routeMatches($event->action->uniqueId, $trackActions)) {
+        $uniqueId = ArrayHelper::getValue($event->action, 'uniqueId');
+
+        if (!empty($trackActions) && !$this->routeMatches($uniqueId, $trackActions)) {
             return false;
         }
-        if (!empty($ignoreActions) && $this->routeMatches($event->action->uniqueId, $ignoreActions)) {
+        if (!empty($ignoreActions) && $this->routeMatches($uniqueId, $ignoreActions)) {
             return false;
         }
 
@@ -350,9 +362,9 @@ class Audit extends Module
         // This code assumes the audit module is already loaded and can thus look for a derived instance
         $loadedModules = Yii::$app->loadedModules;
         foreach ($loadedModules as $module) {
-             if ($module instanceof self) {
-                 return self::$_me = $module;
-             }
+            if ($module instanceof self) {
+                return self::$_me = $module;
+            }
         }
 
         // If we're still here, fall back onto the default implementation
@@ -409,6 +421,18 @@ class Audit extends Module
             return call_user_func($this->userIdCallback);
         }
         return (Yii::$app instanceof \yii\web\Application && Yii::$app->user) ? Yii::$app->user->id : null;
+    }
+
+    /**
+     * @return int|mixed|null|string
+     */
+    public function getUserIp()
+    {
+        if ($this->userIpCallback && is_callable($this->userIpCallback)) {
+            return call_user_func($this->userIpCallback);
+        }
+
+        return Yii::$app->getRequest()->getUserIP();
     }
 
     /**
@@ -482,12 +506,12 @@ class Audit extends Module
 
         // We now need one more iteration to add core classes to the panels added via the merge, if needed
         array_walk($this->panels, function(&$value, $key) {
-           if (!isset($value['class'])) {
-               if (isset($this->_corePanels[$key]))
-                   $value = ArrayHelper::merge($value, $this->_corePanels[$key]);
-               else
-                   throw new InvalidConfigException("Invalid configuration for '$key'. No 'class' specified.");
-           }
+            if (!isset($value['class'])) {
+                if (isset($this->_corePanels[$key]))
+                    $value = ArrayHelper::merge($value, $this->_corePanels[$key]);
+                else
+                    throw new InvalidConfigException("Invalid configuration for '$key'. No 'class' specified.");
+            }
         });
     }
 
